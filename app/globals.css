@@ -1,0 +1,654 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Using the green from the ДЕЛЬТА logo */
+    --background: 0 0% 100%;
+    --foreground: 152 64% 8%;
+    --card: 0 0% 100%;
+    --card-foreground: 152 64% 8%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 152 64% 8%;
+    --primary: 152 64% 32%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 152 30% 96%;
+    --secondary-foreground: 152 64% 8%;
+    --muted: 152 30% 96%;
+    --muted-foreground: 152 40% 40%;
+    --accent: 152 30% 96%;
+    --accent-foreground: 152 64% 8%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 152 20% 90%;
+    --input: 152 20% 90%;
+    --ring: 152 64% 32%;
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 152 64% 8%;
+    --foreground: 0 0% 98%;
+    --card: 152 64% 8%;
+    --card-foreground: 0 0% 98%;
+    --popover: 152 64% 8%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 152 64% 32%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 152 30% 20%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 152 30% 20%;
+    --muted-foreground: 152 40% 65%;
+    --accent: 152 30% 20%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 152 30% 20%;
+    --input: 152 30% 20%;
+    --ring: 152 64% 32%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* Улучшенные переходы и анимации */
+@layer components {
+  .smooth-transition {
+    @apply transition-all duration-300 ease-in-out;
+  }
+
+  .hover-lift {
+    @apply transform transition-all duration-300 ease-in-out hover:scale-105 hover:shadow-xl;
+  }
+
+  .card-hover {
+    @apply transition-all duration-300 ease-in-out hover:shadow-2xl hover:-translate-y-2;
+  }
+
+  .gradient-bg {
+    background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(152, 64%, 45%) 100%);
+  }
+
+  .glass-effect {
+    @apply backdrop-blur-md bg-white/80 border border-white/20;
+  }
+
+  .text-gradient {
+    background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(152, 64%, 45%) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+}
+
+/* News carousel */
+.news-carousel {
+  @apply relative overflow-hidden;
+}
+
+.news-slide {
+  @apply absolute w-full transition-transform duration-500 ease-in-out;
+}
+
+/* Улучшенные Flip Cards */
+.flip-card {
+  perspective: 1000px;
+  height: 400px;
+}
+
+.flip-card-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  text-align: center;
+  transition: transform 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transform-style: preserve-3d;
+}
+
+.flip-card:hover .flip-card-inner {
+  transform: rotateY(180deg);
+}
+
+.flip-card-front,
+.flip-card-back {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  backface-visibility: hidden;
+  border-radius: var(--radius);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+  transition: box-shadow 0.3s ease;
+}
+
+.flip-card-front {
+  background: linear-gradient(135deg, hsl(var(--primary)), hsl(152, 64%, 45%));
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 2rem;
+}
+
+.flip-card-back {
+  background: white;
+  color: hsl(var(--foreground));
+  transform: rotateY(180deg);
+  padding: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  border: 1px solid hsl(var(--border));
+}
+
+.flip-card:hover .flip-card-front,
+.flip-card:hover .flip-card-back {
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+}
+
+.lucide {
+  color: hsl(var(--primary));
+}
+
+.lucide-icon {
+  color: hsl(var(--primary));
+}
+
+/* Улучшенная карта */
+.map-container {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+  transition: box-shadow 0.3s ease;
+}
+
+.map-container:hover {
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+}
+
+.map-container iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  border-radius: var(--radius);
+}
+
+.map-container iframe.clicked {
+  pointer-events: auto;
+}
+
+/* Улучшенные облака */
+.clouds-container {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.cloud-realistic {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 100px;
+  opacity: 0.8;
+  filter: blur(1px);
+}
+
+.cloud-realistic::before,
+.cloud-realistic::after {
+  content: "";
+  position: absolute;
+  background: inherit;
+  border-radius: 50%;
+}
+
+.cloud-1 {
+  width: 200px;
+  height: 60px;
+  top: 15%;
+  animation: float 30s infinite linear;
+}
+
+.cloud-1::before {
+  width: 100px;
+  height: 100px;
+  top: -50px;
+  left: 45px;
+}
+
+.cloud-1::after {
+  width: 80px;
+  height: 80px;
+  top: -35px;
+  left: 95px;
+}
+
+.cloud-2 {
+  width: 300px;
+  height: 80px;
+  top: 35%;
+  animation: float 45s infinite linear;
+  animation-delay: -15s;
+}
+
+.cloud-2::before {
+  width: 120px;
+  height: 120px;
+  top: -60px;
+  left: 65px;
+}
+
+.cloud-2::after {
+  width: 100px;
+  height: 100px;
+  top: -45px;
+  left: 145px;
+}
+
+.cloud-3 {
+  width: 150px;
+  height: 50px;
+  top: 25%;
+  animation: float 35s infinite linear;
+  animation-delay: -5s;
+}
+
+.cloud-3::before {
+  width: 80px;
+  height: 80px;
+  top: -40px;
+  left: 35px;
+}
+
+.cloud-3::after {
+  width: 60px;
+  height: 60px;
+  top: -30px;
+  left: 75px;
+}
+
+.cloud-4 {
+  width: 250px;
+  height: 70px;
+  top: 45%;
+  animation: float 40s infinite linear;
+  animation-delay: -25s;
+}
+
+.cloud-4::before {
+  width: 110px;
+  height: 110px;
+  top: -55px;
+  left: 55px;
+}
+
+.cloud-4::after {
+  width: 90px;
+  height: 90px;
+  top: -40px;
+  left: 125px;
+}
+
+@keyframes float {
+  0% {
+    transform: translateX(-300px);
+  }
+  100% {
+    transform: translateX(calc(100vw + 300px));
+  }
+}
+
+.sun {
+  position: absolute;
+  top: 10%;
+  left: 10%;
+  width: 100px;
+  height: 100px;
+  background: radial-gradient(circle, #ffff00 0%, #ff8c00 100%);
+  border-radius: 50%;
+  box-shadow: 0 0 50px rgba(255, 255, 0, 0.6);
+  animation: sunGlow 4s ease-in-out infinite alternate;
+}
+
+@keyframes sunGlow {
+  0% {
+    box-shadow: 0 0 50px rgba(255, 255, 0, 0.6);
+  }
+  100% {
+    box-shadow: 0 0 80px rgba(255, 255, 0, 0.8);
+  }
+}
+
+.moon {
+  position: absolute;
+  top: 10%;
+  right: 10%;
+  width: 80px;
+  height: 80px;
+  background: #f5f3ce;
+  border-radius: 50%;
+  box-shadow: 0 0 20px rgba(245, 243, 206, 0.8);
+  animation: moonGlow 3s ease-in-out infinite alternate;
+}
+
+@keyframes moonGlow {
+  0% {
+    box-shadow: 0 0 20px rgba(245, 243, 206, 0.8);
+  }
+  100% {
+    box-shadow: 0 0 40px rgba(245, 243, 206, 1);
+  }
+}
+
+.stars {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: radial-gradient(2px 2px at 20px 30px, #eee, rgba(0, 0, 0, 0)),
+    radial-gradient(2px 2px at 40px 70px, #fff, rgba(0, 0, 0, 0)),
+    radial-gradient(2px 2px at 50px 160px, #ddd, rgba(0, 0, 0, 0)),
+    radial-gradient(2px 2px at 90px 40px, #fff, rgba(0, 0, 0, 0)),
+    radial-gradient(2px 2px at 130px 80px, #fff, rgba(0, 0, 0, 0)),
+    radial-gradient(2px 2px at 160px 120px, #ddd, rgba(0, 0, 0, 0));
+  background-repeat: repeat;
+  background-size: 200px 200px;
+  animation: twinkle 5s infinite;
+}
+
+@keyframes twinkle {
+  0% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 0.4;
+  }
+  100% {
+    opacity: 0.8;
+  }
+}
+
+.twinkling {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: radial-gradient(2px 2px at 20px 30px, #fff, rgba(0, 0, 0, 0)),
+    radial-gradient(2px 2px at 40px 70px, #fff, rgba(0, 0, 0, 0)),
+    radial-gradient(2px 2px at 50px 160px, #fff, rgba(0, 0, 0, 0)),
+    radial-gradient(2px 2px at 90px 40px, #fff, rgba(0, 0, 0, 0)),
+    radial-gradient(2px 2px at 130px 80px, #fff, rgba(0, 0, 0, 0)),
+    radial-gradient(2px 2px at 160px 120px, #ddd, rgba(0, 0, 0, 0));
+  background-repeat: repeat;
+  background-size: 200px 200px;
+  animation: twinkle 4s infinite;
+}
+
+.rain {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.8) 100%);
+  background-size: 1px 50px;
+  animation: rain 0.5s linear infinite;
+  opacity: 0.5;
+}
+
+@keyframes rain {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 0 50px;
+  }
+}
+
+@media (max-width: 768px) {
+  .cloud-1 {
+    width: 100px;
+    height: 30px;
+  }
+
+  .cloud-1::before {
+    width: 50px;
+    height: 50px;
+    top: -25px;
+    left: 22px;
+  }
+
+  .cloud-1::after {
+    width: 40px;
+    height: 40px;
+    top: -17px;
+    left: 47px;
+  }
+
+  .cloud-2 {
+    width: 150px;
+    height: 40px;
+  }
+
+  .cloud-2::before {
+    width: 60px;
+    height: 60px;
+    top: -30px;
+    left: 32px;
+  }
+
+  .cloud-2::after {
+    width: 50px;
+    height: 50px;
+    top: -22px;
+    left: 72px;
+  }
+
+  .cloud-3 {
+    width: 75px;
+    height: 25px;
+  }
+
+  .cloud-3::before {
+    width: 40px;
+    height: 40px;
+    top: -20px;
+    left: 17px;
+  }
+
+  .cloud-3::after {
+    width: 30px;
+    height: 30px;
+    top: -15px;
+    left: 37px;
+  }
+
+  .cloud-4 {
+    width: 125px;
+    height: 35px;
+  }
+
+  .cloud-4::before {
+    width: 55px;
+    height: 55px;
+    top: -27px;
+    left: 27px;
+  }
+
+  .cloud-4::after {
+    width: 45px;
+    height: 45px;
+    top: -20px;
+    left: 62px;
+  }
+
+  .sun,
+  .moon {
+    width: 60px;
+    height: 60px;
+  }
+}
+
+/* Улучшенные стили для адаптивности */
+@media (max-width: 640px) {
+  .container {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}
+
+/* Улучшенные стили для карточек */
+@media (max-width: 768px) {
+  .card {
+    padding: 1rem;
+  }
+
+  .card-header {
+    padding: 1rem 1rem 0.5rem 1rem;
+  }
+
+  .card-content {
+    padding: 0.5rem 1rem 1rem 1rem;
+  }
+}
+
+/* Стили для гибких сеток */
+.grid-auto-fit {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+}
+
+.grid-auto-fill {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.5rem;
+}
+
+/* Улучшенные стили для секций */
+section {
+  position: relative;
+  overflow: hidden;
+}
+
+/* Улучшенные анимации */
+.animate-fade-in {
+  animation: fadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.animate-slide-up {
+  animation: slideUp 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(30px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Улучшенные стили для кнопок */
+.btn-gradient {
+  background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(152, 64%, 45%) 100%);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-gradient:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+}
+
+/* Улучшенные стили для заголовков */
+.heading-gradient {
+  background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(152, 64%, 45%) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Стили для плавной прокрутки */
+.scroll-smooth {
+  scroll-behavior: smooth;
+}
+
+/* Улучшенные тени */
+.shadow-soft {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+}
+
+.shadow-medium {
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+}
+
+.shadow-strong {
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.15);
+}
+
+/* Стили для улучшенного фокуса */
+.focus-ring {
+  @apply focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2;
+}
+
+/* Стили для улучшенных переходов страниц */
+.page-transition {
+  animation: pageEnter 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes pageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

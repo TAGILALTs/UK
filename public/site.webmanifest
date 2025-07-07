@@ -1,0 +1,24 @@
+{
+  "name": "Управляющая Компания - ООО Дельта",
+  "short_name": "Управляющая Компания - ООО Дельта",
+  "icons": [
+    {
+      "src": "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/favicon-72x72-ga8xmswdmACKImL3eEgcwFSTbRS2Tc.png",
+      "sizes": "72x72",
+      "type": "image/png"
+    },
+    {
+      "src": "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/favicon-96x96-wWTP7Gjryyk0Y8JIeoBWvQHwtHnWrH.png",
+      "sizes": "96x96",
+      "type": "image/png"
+    },
+    {
+      "src": "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/favicon-114x114-deI0UieHRMxj5Cw5I4gN755tS2POP6.png",
+      "sizes": "114x114",
+      "type": "image/png"
+    }
+  ],
+  "theme_color": "#ffffff",
+  "background_color": "#ffffff",
+  "display": "standalone"
+}
