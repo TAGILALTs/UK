@@ -88,15 +88,13 @@ export default function Home() {
   transition={{ duration: 0.8, delay: 0.2, ease: [0.4, 0, 0.2, 1] }}
 >
   <p 
-    className={`text-2xl sm:text-4xl md:text-6xl font-bold mb-6 ${isNight ? "text-white" : "text-green-800"} heading-gradient`}
+    className="text-2xl sm:text-4xl md:text-6xl font-bold mb-6 heading-gradient"
     style={{
-      background: isNight 
-        ? "linear-gradient(90deg, #2E7D32 0%, #4CAF50 50%, #81C784 100%)"
-        : "linear-gradient(90deg, #1B5E20 0%, #2E7D32 50%, #388E3C 100%)",
+      background: "linear-gradient(90deg, #1B5E20 0%, #2E7D32 50%, #388E3C 100%)",
       WebkitBackgroundClip: "text",
       backgroundClip: "text",
       color: "transparent",
-      textShadow: isNight ? "none" : "2px 2px 4px rgba(0,0,0,0.3)"
+      textShadow: "2px 2px 4px rgba(0,0,0,0.2)"
     }}
   >
     <strong>ООО "ДЕЛЬТА"</strong>
