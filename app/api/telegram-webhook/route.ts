@@ -117,7 +117,6 @@ export async function POST(request: NextRequest) {
 
     const userId = message.from.id.toString()
     const chatId = message.chat.id
-    const userName = message.from.first_name || "Пользователь"
 
     // Проверка авторизации
     if (!AUTHORIZED_USERS.includes(userId)) {
@@ -125,12 +124,58 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    // Обработка фотографий (только для команд, где это разрешено)
-    if (message.photo && message.photo.length > 0) {
-      await sendTelegramMessage(
-        chatId,
-        "❌ Фото нельзя прикреплять напрямую. Используйте команду /news с ссылкой на изображение."
+    // Обработка фотографий с подписью
+    if (message.photo && message.photo.length > 0 && message.caption) {
+      const caption = message.caption.trim()
+      
+      if (!caption.includes("|")) {
+        await sendTelegramMessage(
+          chatId,
+          "❌ <b>Неверный формат</b>\n\nДля новости с фото используйте:\n<b>Заголовок | Описание</b>\n\nПример:\n<b>Важная новость | Подробное описание</b>"
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      const parts = caption.split("|").map(part => part.trim())
+      if (parts.length < 2) {
+        await sendTelegramMessage(chatId, "❌ Необходимо указать заголовок и описание через символ |")
+        return NextResponse.json({ ok: true })
+      }
+
+      const [title, description] = parts
+
+      if (!title || !description) {
+        await sendTelegramMessage(chatId, "❌ Заголовок и описание не могут быть пустыми")
+        return NextResponse.json({ ok: true })
+      }
+
+      // Получаем самое большое фото
+      const largestPhoto = message.photo.reduce((prev, current) =>
+        prev.width * prev.height > current.width * current.height ? prev : current,
       )
+
+      const imageUrl = await getFileUrl(largestPhoto.file_id)
+
+      await sendTelegramMessage(chatId, "⏳ <b>Добавляю новость с фото...</b>")
+
+      try {
+        // Используем "Администратор" вместо имени пользователя
+        await NewsDatabase.addNews(title, description, "Администратор", imageUrl || undefined)
+
+        const successMessage = `✅ <b>Новость с фото успешно добавлена!</b>
+
+📰 <b>Заголовок:</b> ${title}
+📝 <b>Описание:</b> ${description.length > 100 ? description.substring(0, 100) + "..." : description}
+📸 <b>Фото:</b> Прикреплено
+⏰ <b>Время:</b> ${new Date().toLocaleString("ru-RU")}
+
+🌐 <b>Просмотреть:</b> <a href="${process.env.NEXT_PUBLIC_BASE_URL}/news">Страница новостей</a>`
+
+        await sendTelegramMessage(chatId, successMessage)
+      } catch (error) {
+        await sendTelegramMessage(chatId, `❌ <b>Ошибка публикации</b>\n\n${String(error)}`)
+      }
+
       return NextResponse.json({ ok: true })
     }
 
@@ -143,21 +188,18 @@ export async function POST(request: NextRequest) {
     if (text === "/start") {
       const welcomeMessage = `🏢 <b>Бот управляющей компании</b>
 
-Добро пожаловать, ${userName}!
-
 📰 <b>Добавление новости:</b>
-Отправьте сообщение в формате:
+1. Можно отправить текст в формате:
 <code>/news Заголовок | Описание | Ссылка на изображение (по желанию)</code>
 
-📝 <b>Пример:</b>
-<code>/news Новые правила парковки | С 1 января вводятся новые правила парковки во дворе | https://example.com/image.jpg</code>
+2. Или отправить фото с подписью в формате:
+<code>Заголовок | Описание</code>
 
 📋 <b>Другие команды:</b>
 • /list - Список всех новостей
 • /edit ID | Новый заголовок | Новое описание
 • /delete ID - Удалить новость
-• /status - Проверить статус системы
-• /test - Создать тестовую новость`
+• /status - Проверить статус системы`
 
       await sendTelegramMessage(chatId, welcomeMessage)
       return NextResponse.json({ ok: true })
@@ -192,14 +234,13 @@ export async function POST(request: NextRequest) {
       await sendTelegramMessage(chatId, "⏳ <b>Добавляю новость...</b>")
 
       try {
-        const author = `${userName}${message.from.username ? ` (@${message.from.username})` : ""}`
-        await NewsDatabase.addNews(title, description, author, imageUrl || undefined)
+        // Используем "Администратор" вместо имени пользователя
+        await NewsDatabase.addNews(title, description, "Администратор", imageUrl || undefined)
 
         const successMessage = `✅ <b>Новость успешно добавлена!</b>
 
 📰 <b>Заголовок:</b> ${title}
 📝 <b>Описание:</b> ${description.length > 100 ? description.substring(0, 100) + "..." : description}
-👤 <b>Автор:</b> ${author}
 ${imageUrl ? `📸 <b>Изображение:</b> Прикреплено\n` : ""}
 ⏰ <b>Время:</b> ${new Date().toLocaleString("ru-RU")}
 
@@ -273,13 +314,12 @@ ${newsList.join("\n")}
       await sendTelegramMessage(chatId, "⏳ <b>Обновляю новость...</b>")
 
       try {
-        const updatedNews = await NewsDatabase.updateNews(newsId, newTitle, newDescription, userName)
+        const updatedNews = await NewsDatabase.updateNews(newsId, newTitle, newDescription, "Администратор")
 
         const successMessage = `✅ <b>Новость успешно обновлена!</b>
 
 📰 <b>Новый заголовок:</b> ${newTitle}
 📝 <b>Новое описание:</b> ${newDescription.length > 100 ? newDescription.substring(0, 100) + "..." : newDescription}
-👤 <b>Автор:</b> ${userName}
 ⏰ <b>Время обновления:</b> ${new Date().toLocaleString("ru-RU")}
 
 🌐 <b>Просмотреть:</b> <a href="${process.env.NEXT_PUBLIC_BASE_URL}/news">Страница новостей</a>`
@@ -325,32 +365,6 @@ ${newsList.join("\n")}
           chatId,
           `❌ <b>Ошибка удаления</b>\n\n${String(error)}\n\nИспользуйте /list для получения актуального списка новостей`
         )
-      }
-
-      return NextResponse.json({ ok: true })
-    }
-
-    // Команда /test - тестовая новость
-    if (text === "/test") {
-      const testTitle = `Тестовая новость ${new Date().toLocaleTimeString("ru-RU")}`
-      const testDescription = `Это тестовая новость, добавленная ${new Date().toLocaleString("ru-RU")}`
-
-      try {
-        const author = `${userName}${message.from.username ? ` (@${message.from.username})` : ""}`
-        await NewsDatabase.addNews(testTitle, testDescription, author)
-
-        const successMessage = `✅ <b>Тестовая новость добавлена!</b>
-
-📰 <b>Заголовок:</b> ${testTitle}
-📝 <b>Описание:</b> ${testDescription}
-👤 <b>Автор:</b> ${author}
-⏰ <b>Время:</b> ${new Date().toLocaleString("ru-RU")}
-
-🌐 <b>Просмотреть:</b> <a href="${process.env.NEXT_PUBLIC_BASE_URL}/news">Страница новостей</a>`
-
-        await sendTelegramMessage(chatId, successMessage)
-      } catch (error) {
-        await sendTelegramMessage(chatId, `❌ Ошибка добавления тестовой новости: ${String(error)}`)
       }
 
       return NextResponse.json({ ok: true })
