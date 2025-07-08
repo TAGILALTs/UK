@@ -2,7 +2,7 @@ const https = require("https")
 
 // Конфигурация
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "8069781675:AAHZ-0Lu_THbc-OFblUSmQjD9vuPeB9_YuI"
-const WEBHOOK_URL = process.env.NEXT_PUBLIC_BASE_URL || "https://www.ykdelta.ru"
+const WEBHOOK_URL = process.env.NEXT_PUBLIC_BASE_URL || "https://ykdelta.vercel.app"
 
 console.log("🤖 Настройка Telegram бота...")
 console.log("Bot Token:", BOT_TOKEN ? "Установлен" : "НЕ УСТАНОВЛЕН")
