@@ -35,9 +35,9 @@ const VideoBackground = () => {
       const API_KEY = "0cc56ad5396c8e5d9bda3882acc0395d"
       try {
         const response = await fetch(
-          `https://api.openweathermap.org/data/2.5/weather?q=Tyumen,ru&units=metric&appid=${API_KEY}&lang=ru`
+          `https://api.openweathermap.org/data/2.5/weather?q=Tyumen,ru&units=metric&appid=${API_KEY}&lang=ru`,
         )
-        
+
         if (!response.ok) throw new Error("Сеть не отвечает")
         const data = await response.json()
         setWeather(data)
@@ -81,16 +81,18 @@ const VideoBackground = () => {
   return (
     <div className="absolute inset-0 w-full h-full overflow-hidden flex flex-col">
       <div
-        className={`absolute inset-x-0 ${isMobile ? "h-[65vh]" : "h-[158vh]"} bg-cover z-10 overflow-hidden`}
+        className={`absolute inset-x-0 ${isMobile ? "h-[65vh]" : "h-[158vh]"} overflow-hidden`}
         style={{
-          bottom: isMobile ? '-50px' : '-710px',
+          bottom: isMobile ? "-50px" : "-710px",
           backgroundImage: isNight
             ? "url('https://i.imgur.com/ecXG0Li.png')"
             : "url('https://i.imgur.com/Y6Cmyb4.png')",
-          filter: "brightness(50%)",
           backgroundSize: "cover",
           backgroundPosition: "bottom center",
+          backgroundRepeat: "no-repeat",
+          filter: "brightness(50%)",
           transform: `scale(${isMobile ? 4 : 2})`,
+          zIndex: 10,
         }}
       />
       <div className={`relative w-full h-full flex-1 ${isNight ? "night" : "day"}`}>
