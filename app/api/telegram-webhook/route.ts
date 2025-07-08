@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { NewsDatabase } from "@/lib/database"
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN
-const AUTHORIZED_USERS = process.env.AUTHORIZED_TELEGRAM_USERS?.split(",").map(Number) || []
+const AUTHORIZED_USERS = process.env.AUTHORIZED_TELEGRAM_USERS?.split(",") || []
 
 interface TelegramUpdate {
   message?: {
@@ -45,18 +45,6 @@ interface TelegramUpdate {
   }
 }
 
-const userStates = new Map<
-  number,
-  {
-    step: "title" | "description" | "image" | "confirm"
-    data: {
-      title?: string
-      description?: string
-      image?: string
-    }
-  }
->()
-
 async function sendTelegramMessage(chatId: number, text: string, replyMarkup?: any) {
   try {
     const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
@@ -73,10 +61,11 @@ async function sendTelegramMessage(chatId: number, text: string, replyMarkup?: a
     })
 
     if (!response.ok) {
-      console.error("Failed to send message:", await response.text())
+      const errorText = await response.text()
+      console.error("Failed to send Telegram message:", errorText)
     }
   } catch (error) {
-    console.error("Error sending message:", error)
+    console.error("Error sending Telegram message:", error)
   }
 }
 
@@ -84,7 +73,12 @@ async function getFileUrl(fileId: string): Promise<string | null> {
   try {
     const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getFile?file_id=${fileId}`)
     const data = await response.json()
-    return data.ok ? `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${data.result.file_path}` : null
+
+    if (data.ok && data.result.file_path) {
+      return `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${data.result.file_path}`
+    }
+
+    return null
   } catch (error) {
     console.error("Error getting file URL:", error)
     return null
@@ -94,213 +88,336 @@ async function getFileUrl(fileId: string): Promise<string | null> {
 export async function POST(request: NextRequest) {
   try {
     const body: TelegramUpdate = await request.json()
-    console.log("Incoming update:", JSON.stringify(body, null, 2))
 
-    // Обработка callback кнопок
+    // Обработка callback queries (кнопки)
     if (body.callback_query) {
-      const callback = body.callback_query
-      const chatId = callback.message?.chat.id
-      const userId = callback.from.id
-      const data = callback.data
+      const callbackQuery = body.callback_query
+      const chatId = callbackQuery.message?.chat.id
+      const userId = callbackQuery.from.id
+      const data = callbackQuery.data
 
-      console.log(`Processing callback from ${userId}, data: ${data}`)
-
-      if (!chatId || !AUTHORIZED_USERS.includes(userId)) {
-        console.log(`User ${userId} not authorized`)
+      if (!chatId || !AUTHORIZED_USERS.includes(userId.toString())) {
         return NextResponse.json({ ok: true })
       }
 
-      const userState = userStates.get(userId)
-      console.log("Current user state:", userState)
-
-      if (data === "confirm_publish" && userState?.step === "confirm") {
-        try {
-          if (!userState.data.title || !userState.data.description) {
-            throw new Error("Missing required fields")
-          }
-
-          const author = `${callback.from.first_name}${callback.from.username ? ` (@${callback.from.username})` : ""}`
-          
-          console.log("Publishing news:", {
-            title: userState.data.title,
-            description: userState.data.description,
-            author,
-            image: userState.data.image
-          })
-
-          const result = await NewsDatabase.addNews(
-            userState.data.title,
-            userState.data.description,
-            author,
-            userState.data.image
-          )
-
-          userStates.delete(userId)
-          
-          await sendTelegramMessage(
-            chatId,
-            `✅ <b>Новость опубликована!</b>\n\n` +
-            `📰 <b>Заголовок:</b> ${userState.data.title}\n` +
-            `📝 <b>Описание:</b> ${userState.data.description.substring(0, 50)}...\n` +
-            `🆔 <b>ID:</b> ${result.id}\n\n` +
-            `🌐 <a href="${process.env.NEXT_PUBLIC_BASE_URL}/news">Просмотреть на сайте</a>`
-          )
-
-        } catch (error) {
-          console.error("Publish error:", error)
-          await sendTelegramMessage(
-            chatId,
-            `❌ <b>Ошибка публикации</b>\n\n${error instanceof Error ? error.message : String(error)}`
-          )
-        }
-      } 
-      else if (data === "cancel_publish") {
-        userStates.delete(userId)
-        await sendTelegramMessage(chatId, "❌ Публикация отменена")
+      // Обработка кнопок подтверждения/отмены
+      if (data === "confirm_publish") {
+        await sendTelegramMessage(chatId, "✅ Новость опубликована!")
+      } else if (data === "cancel_publish") {
+        await sendTelegramMessage(chatId, "❌ Публикация новости отменена.")
       }
 
       return NextResponse.json({ ok: true })
     }
 
-    // Обработка обычных сообщений
     const message = body.message
-    if (!message) return NextResponse.json({ ok: true })
+    if (!message) {
+      return NextResponse.json({ ok: true })
+    }
 
-    const userId = message.from.id
+    const userId = message.from.id.toString()
     const chatId = message.chat.id
+    const userName = message.from.first_name || "Пользователь"
 
     // Проверка авторизации
     if (!AUTHORIZED_USERS.includes(userId)) {
-      console.log(`Unauthorized access attempt by ${userId}`)
-      await sendTelegramMessage(chatId, "❌ У вас нет прав для использования этого бота")
+      await sendTelegramMessage(chatId, `❌ У вас нет прав для использования этого бота.`)
       return NextResponse.json({ ok: true })
     }
 
-    // Обработка команд
-    if (message.text) {
-      const text = message.text.trim()
+    // Обработка фотографий (только для команд, где это разрешено)
+    if (message.photo && message.photo.length > 0) {
+      await sendTelegramMessage(
+        chatId,
+        "❌ Фото нельзя прикреплять напрямую. Используйте команду /news с ссылкой на изображение."
+      )
+      return NextResponse.json({ ok: true })
+    }
 
-      if (text === "/start") {
-        await sendStartMessage(chatId, message.from)
-        return NextResponse.json({ ok: true })
-      }
+    const text = message.text?.trim()
+    if (!text) {
+      return NextResponse.json({ ok: true })
+    }
 
-      if (text === "/news") {
-        userStates.set(userId, { step: "title", data: {} })
+    // Команда /start
+    if (text === "/start") {
+      const welcomeMessage = `🏢 <b>Бот управляющей компании</b>
+
+Добро пожаловать, ${userName}!
+
+📰 <b>Добавление новости:</b>
+Отправьте сообщение в формате:
+<code>/news Заголовок | Описание | Ссылка на изображение (по желанию)</code>
+
+📝 <b>Пример:</b>
+<code>/news Новые правила парковки | С 1 января вводятся новые правила парковки во дворе | https://example.com/image.jpg</code>
+
+📋 <b>Другие команды:</b>
+• /list - Список всех новостей
+• /edit ID | Новый заголовок | Новое описание
+• /delete ID - Удалить новость
+• /status - Проверить статус системы
+• /test - Создать тестовую новость`
+
+      await sendTelegramMessage(chatId, welcomeMessage)
+      return NextResponse.json({ ok: true })
+    }
+
+    // Команда /news - добавление новости
+    if (text.startsWith("/news ")) {
+      const newsContent = text.substring(6).trim()
+      const parts = newsContent.split("|").map(part => part.trim())
+
+      if (parts.length < 2 || parts.length > 3) {
         await sendTelegramMessage(
           chatId,
-          "📝 <b>Создание новости - Шаг 1/4</b>\n\nВведите <b>заголовок</b> новости:"
+          `❌ <b>Неверный формат</b>\n\nИспользуйте:\n<code>/news Заголовок | Описание | Ссылка на изображение (по желанию)</code>\n\nПример:\n<code>/news Новые правила | С 1 января новые правила парковки | https://example.com/image.jpg</code>`
         )
         return NextResponse.json({ ok: true })
       }
 
-      // Остальные команды (/list, /edit, /delete и т.д.)
-      // ...
+      const [title, description, imageUrl] = parts
+
+      if (!title || !description) {
+        await sendTelegramMessage(chatId, "❌ <b>Пустые поля</b>\n\nЗаголовок и описание не могут быть пустыми")
+        return NextResponse.json({ ok: true })
+      }
+
+      // Проверка URL изображения, если он есть
+      if (imageUrl && !/^https?:\/\/.+\..+/.test(imageUrl)) {
+        await sendTelegramMessage(chatId, "❌ Некорректная ссылка на изображение. Используйте полный URL (начинается с http:// или https://)")
+        return NextResponse.json({ ok: true })
+      }
+
+      await sendTelegramMessage(chatId, "⏳ <b>Добавляю новость...</b>")
+
+      try {
+        const author = `${userName}${message.from.username ? ` (@${message.from.username})` : ""}`
+        await NewsDatabase.addNews(title, description, author, imageUrl || undefined)
+
+        const successMessage = `✅ <b>Новость успешно добавлена!</b>
+
+📰 <b>Заголовок:</b> ${title}
+📝 <b>Описание:</b> ${description.length > 100 ? description.substring(0, 100) + "..." : description}
+👤 <b>Автор:</b> ${author}
+${imageUrl ? `📸 <b>Изображение:</b> Прикреплено\n` : ""}
+⏰ <b>Время:</b> ${new Date().toLocaleString("ru-RU")}
+
+🌐 <b>Просмотреть:</b> <a href="${process.env.NEXT_PUBLIC_BASE_URL}/news">Страница новостей</a>`
+
+        await sendTelegramMessage(chatId, successMessage)
+      } catch (error) {
+        await sendTelegramMessage(chatId, `❌ <b>Ошибка публикации</b>\n\n${String(error)}`)
+      }
+
+      return NextResponse.json({ ok: true })
     }
 
-    // Обработка состояний создания новости
-    const userState = userStates.get(userId)
-    if (userState) {
-      await handleUserState(userState, message, chatId, userId)
+    // Команда /list - показать список новостей
+    if (text === "/list") {
+      try {
+        const newsList = await NewsDatabase.getNewsListForTelegram()
+
+        if (newsList.length === 0) {
+          await sendTelegramMessage(
+            chatId,
+            "📰 <b>Список новостей пуст</b>\n\nИспользуйте /news для добавления новости"
+          )
+        } else {
+          const listMessage = `📰 <b>Список новостей (${newsList.length}):</b>
+
+${newsList.join("\n")}
+
+💡 <b>Для редактирования:</b>
+<code>/edit ID | Новый заголовок | Новое описание</code>
+
+🗑 <b>Для удаления:</b>
+<code>/delete ID</code>`
+
+          await sendTelegramMessage(chatId, listMessage)
+        }
+      } catch (error) {
+        await sendTelegramMessage(chatId, `❌ <b>Ошибка получения списка</b>\n\n${String(error)}`)
+      }
+      return NextResponse.json({ ok: true })
     }
 
+    // Команда /edit - редактировать новость
+    if (text.startsWith("/edit ")) {
+      const editContent = text.substring(6).trim()
+
+      if (!editContent) {
+        await sendTelegramMessage(
+          chatId,
+          "❌ <b>Пустая команда редактирования</b>\n\nИспользуйте формат:\n<code>/edit ID | Новый заголовок | Новое описание</code>\n\nДля получения списка ID используйте /list"
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      const parts = editContent.split("|").map(part => part.trim())
+      if (parts.length < 3) {
+        await sendTelegramMessage(
+          chatId,
+          "❌ <b>Неверный формат</b>\n\nИспользуйте:\n<code>/edit ID | Новый заголовок | Новое описание</code>\n\nПример:\n<code>/edit news_123 | Обновленный заголовок | Обновленное описание</code>"
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      const [newsId, newTitle, newDescription] = parts
+
+      if (!newsId || !newTitle || !newDescription) {
+        await sendTelegramMessage(chatId, "❌ <b>Пустые поля</b>\n\nID, заголовок и описание не могут быть пустыми")
+        return NextResponse.json({ ok: true })
+      }
+
+      await sendTelegramMessage(chatId, "⏳ <b>Обновляю новость...</b>")
+
+      try {
+        const updatedNews = await NewsDatabase.updateNews(newsId, newTitle, newDescription, userName)
+
+        const successMessage = `✅ <b>Новость успешно обновлена!</b>
+
+📰 <b>Новый заголовок:</b> ${newTitle}
+📝 <b>Новое описание:</b> ${newDescription.length > 100 ? newDescription.substring(0, 100) + "..." : newDescription}
+👤 <b>Автор:</b> ${userName}
+⏰ <b>Время обновления:</b> ${new Date().toLocaleString("ru-RU")}
+
+🌐 <b>Просмотреть:</b> <a href="${process.env.NEXT_PUBLIC_BASE_URL}/news">Страница новостей</a>`
+
+        await sendTelegramMessage(chatId, successMessage)
+      } catch (error) {
+        await sendTelegramMessage(
+          chatId,
+          `❌ <b>Ошибка обновления</b>\n\n${String(error)}\n\nИспользуйте /list для получения актуального списка новостей`
+        )
+      }
+
+      return NextResponse.json({ ok: true })
+    }
+
+    // Команда /delete - удалить новость
+    if (text.startsWith("/delete ")) {
+      const newsId = text.substring(8).trim()
+
+      if (!newsId) {
+        await sendTelegramMessage(
+          chatId,
+          "❌ <b>Не указан ID новости</b>\n\nИспользуйте формат:\n<code>/delete ID</code>\n\nДля получения списка ID используйте /list"
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      await sendTelegramMessage(chatId, "⏳ <b>Удаляю новость...</b>")
+
+      try {
+        const deletedNews = await NewsDatabase.deleteNews(newsId)
+
+        const successMessage = `✅ <b>Новость успешно удалена!</b>
+
+📰 <b>Заголовок:</b> ${deletedNews.title}
+⏰ <b>Время удаления:</b> ${new Date().toLocaleString("ru-RU")}
+
+🌐 <b>Просмотреть:</b> <a href="${process.env.NEXT_PUBLIC_BASE_URL}/news">Страница новостей</a>`
+
+        await sendTelegramMessage(chatId, successMessage)
+      } catch (error) {
+        await sendTelegramMessage(
+          chatId,
+          `❌ <b>Ошибка удаления</b>\n\n${String(error)}\n\nИспользуйте /list для получения актуального списка новостей`
+        )
+      }
+
+      return NextResponse.json({ ok: true })
+    }
+
+    // Команда /test - тестовая новость
+    if (text === "/test") {
+      const testTitle = `Тестовая новость ${new Date().toLocaleTimeString("ru-RU")}`
+      const testDescription = `Это тестовая новость, добавленная ${new Date().toLocaleString("ru-RU")}`
+
+      try {
+        const author = `${userName}${message.from.username ? ` (@${message.from.username})` : ""}`
+        await NewsDatabase.addNews(testTitle, testDescription, author)
+
+        const successMessage = `✅ <b>Тестовая новость добавлена!</b>
+
+📰 <b>Заголовок:</b> ${testTitle}
+📝 <b>Описание:</b> ${testDescription}
+👤 <b>Автор:</b> ${author}
+⏰ <b>Время:</b> ${new Date().toLocaleString("ru-RU")}
+
+🌐 <b>Просмотреть:</b> <a href="${process.env.NEXT_PUBLIC_BASE_URL}/news">Страница новостей</a>`
+
+        await sendTelegramMessage(chatId, successMessage)
+      } catch (error) {
+        await sendTelegramMessage(chatId, `❌ Ошибка добавления тестовой новости: ${String(error)}`)
+      }
+
+      return NextResponse.json({ ok: true })
+    }
+
+    // Команда /status
+    if (text === "/status") {
+      try {
+        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://example.com"
+        const newsCount = await NewsDatabase.getNewsCount()
+        const dbConnected = await NewsDatabase.testConnection()
+
+        const statusMessage = `📊 <b>Статус системы</b>
+
+🌐 <b>Сайт:</b> ${baseUrl}
+🗄️ <b>База данных:</b> ${dbConnected ? "✅ Подключена" : "❌ Ошибка подключения"}
+📰 <b>Всего новостей:</b> ${newsCount}
+⏰ <b>Время проверки:</b> ${new Date().toLocaleString("ru-RU")}
+
+🔗 <b>Ссылки:</b>
+• <a href="${baseUrl}/news">Страница новостей</a>`
+
+        await sendTelegramMessage(chatId, statusMessage)
+      } catch (error) {
+        await sendTelegramMessage(chatId, `❌ <b>Ошибка проверки статуса</b>\n\n${String(error)}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    // Неизвестная команда
+    await sendTelegramMessage(
+      chatId,
+      `❓ <b>Неизвестная команда</b>\n\nКоманда "${text}" не распознана.\n\nИспользуйте /start для просмотра доступных команд.`
+    )
     return NextResponse.json({ ok: true })
-
   } catch (error) {
     console.error("Webhook error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
-async function handleUserState(
-  userState: NonNullable<ReturnType<typeof userStates.get>>,
-  message: NonNullable<TelegramUpdate['message']>,
-  chatId: number,
-  userId: number
-) {
-  switch (userState.step) {
-    case "title":
-      userState.data.title = message.text?.trim() || ""
-      userState.step = "description"
-      await sendTelegramMessage(
-        chatId,
-        "✅ <b>Заголовок сохранен</b>\n\n" +
-        "📝 <b>Создание новости - Шаг 2/4</b>\n\n" +
-        "Введите <b>описание</b> новости:"
-      )
-      break
-
-    case "description":
-      userState.data.description = message.text?.trim() || ""
-      userState.step = "image"
-      await sendTelegramMessage(
-        chatId,
-        "✅ <b>Описание сохранено</b>\n\n" +
-        "📷 <b>Создание новости - Шаг 3/4</b>\n\n" +
-        "Отправьте <b>изображение</b> или напишите 'пропустить':"
-      )
-      break
-
-    case "image":
-      if (message.text?.toLowerCase() === "пропустить") {
-        userState.step = "confirm"
-        await sendConfirmation(chatId, userState, message.from)
-      } else if (message.photo) {
-        const photo = message.photo[message.photo.length - 1]
-        userState.data.image = await getFileUrl(photo.file_id)
-        userState.step = "confirm"
-        await sendConfirmation(chatId, userState, message.from)
-      } else {
-        await sendTelegramMessage(
-          chatId,
-          "❌ Отправьте изображение или напишите 'пропустить'"
-        )
-      }
-      break
-  }
-}
-
-async function sendConfirmation(
-  chatId: number,
-  userState: NonNullable<ReturnType<typeof userStates.get>>,
-  from: TelegramUpdate['message']['from']
-) {
-  const preview = `📋 <b>Предпросмотр новости</b>\n\n` +
-    `📰 <b>Заголовок:</b> ${userState.data.title}\n` +
-    `📝 <b>Описание:</b> ${userState.data.description?.substring(0, 100)}...\n` +
-    `📸 <b>Изображение:</b> ${userState.data.image ? "Да" : "Нет"}\n` +
-    `👤 <b>Автор:</b> ${from.first_name}${from.username ? ` (@${from.username})` : ""}\n\n` +
-    `Подтвердите публикацию:`
-
-  await sendTelegramMessage(chatId, preview, {
-    inline_keyboard: [
-      [
-        { text: "✅ Опубликовать", callback_data: "confirm_publish" },
-        { text: "❌ Отменить", callback_data: "cancel_publish" },
-      ],
-    ],
-  })
-}
-
-async function sendStartMessage(chatId: number, from: TelegramUpdate['message']['from']) {
-  await sendTelegramMessage(
-    chatId,
-    `👋 <b>Привет, ${from.first_name}!</b>\n\n` +
-    `Это бот для управления новостями ООО "ДЕЛЬТА"\n\n` +
-    `📌 <b>Основные команды:</b>\n` +
-    `/news - Создать новость\n` +
-    `/list - Список новостей\n` +
-    `/edit - Редактировать новость\n` +
-    `/delete - Удалить новость\n\n` +
-    `📸 Можно отправить фото с подписью в формате:\n` +
-    `<code>Заголовок | Описание</code>`
-  )
-}
-
 export async function GET() {
-  return NextResponse.json({
-    status: "Telegram webhook handler",
-    authorized_users: AUTHORIZED_USERS,
-    active_sessions: userStates.size,
-  })
+  try {
+    const webhookUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo`
+    const response = await fetch(webhookUrl)
+    const data = await response.json()
+
+    const newsCount = await NewsDatabase.getNewsCount()
+    const dbConnected = await NewsDatabase.testConnection()
+
+    return NextResponse.json({
+      status: "Telegram webhook handler",
+      webhook_info: data,
+      authorized_users: AUTHORIZED_USERS,
+      bot_token_configured: !!TELEGRAM_BOT_TOKEN,
+      base_url: process.env.NEXT_PUBLIC_BASE_URL,
+      supabase_news_count: newsCount,
+      supabase_connected: dbConnected,
+    })
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: "Failed to get webhook info",
+        supabase_connected: false,
+        details: String(error),
+      },
+      { status: 500 },
+    )
+  }
 }
