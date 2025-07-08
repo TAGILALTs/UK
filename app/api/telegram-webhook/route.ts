@@ -1,11 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { getAllNews, createNews, updateNews, deleteNews, getNewsById } from "@/lib/database"
+import { NewsDatabase } from "@/lib/database"
 
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN
 const AUTHORIZED_USERS = process.env.AUTHORIZED_TELEGRAM_USERS?.split(",") || []
 
 interface TelegramUpdate {
-  update_id: number
   message?: {
     message_id: number
     from: {
@@ -17,8 +16,16 @@ interface TelegramUpdate {
       id: number
       type: string
     }
-    text?: string
     date: number
+    text?: string
+    photo?: Array<{
+      file_id: string
+      file_unique_id: string
+      width: number
+      height: number
+      file_size?: number
+    }>
+    caption?: string
   }
   callback_query?: {
     id: string
@@ -27,470 +34,567 @@ interface TelegramUpdate {
       first_name: string
       username?: string
     }
-    message: {
+    message?: {
       message_id: number
       chat: {
         id: number
+        type: string
       }
     }
-    data: string
+    data?: string
   }
 }
 
-// Состояния пользователей для создания/редактирования новостей
+// Состояние для отслеживания процесса создания новости
 const userStates = new Map<
   number,
   {
-    action: "creating" | "editing"
-    step: "title" | "description" | "author" | "image" | "confirm"
+    step: "title" | "description" | "image" | "confirm"
     data: {
-      id?: number
       title?: string
       description?: string
-      author?: string
       image?: string
     }
   }
 >()
 
-async function sendMessage(chatId: number, text: string, replyMarkup?: any) {
-  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`
-
-  const payload = {
-    chat_id: chatId,
-    text: text,
-    parse_mode: "HTML",
-    reply_markup: replyMarkup,
-  }
-
+async function sendTelegramMessage(chatId: number, text: string, replyMarkup?: any) {
   try {
-    const response = await fetch(url, {
+    const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: text,
+        parse_mode: "HTML",
+        reply_markup: replyMarkup,
+      }),
     })
 
     if (!response.ok) {
-      console.error("Failed to send message:", await response.text())
+      const errorText = await response.text()
+      console.error("Failed to send Telegram message:", errorText)
     }
   } catch (error) {
-    console.error("Error sending message:", error)
+    console.error("Error sending Telegram message:", error)
   }
 }
 
-async function editMessage(chatId: number, messageId: number, text: string, replyMarkup?: any) {
-  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/editMessageText`
-
-  const payload = {
-    chat_id: chatId,
-    message_id: messageId,
-    text: text,
-    parse_mode: "HTML",
-    reply_markup: replyMarkup,
-  }
-
+async function getFileUrl(fileId: string): Promise<string | null> {
   try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    })
+    const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getFile?file_id=${fileId}`)
+    const data = await response.json()
 
-    if (!response.ok) {
-      console.error("Failed to edit message:", await response.text())
+    if (data.ok && data.result.file_path) {
+      return `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${data.result.file_path}`
     }
+
+    return null
   } catch (error) {
-    console.error("Error editing message:", error)
-  }
-}
-
-async function answerCallbackQuery(callbackQueryId: string, text?: string) {
-  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/answerCallbackQuery`
-
-  const payload = {
-    callback_query_id: callbackQueryId,
-    text: text,
-  }
-
-  try {
-    await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    })
-  } catch (error) {
-    console.error("Error answering callback query:", error)
-  }
-}
-
-function getMainMenuKeyboard() {
-  return {
-    inline_keyboard: [
-      [
-        { text: "📰 Список новостей", callback_data: "list_news" },
-        { text: "➕ Создать новость", callback_data: "create_news" },
-      ],
-      [{ text: "📊 Статистика", callback_data: "stats" }],
-    ],
-  }
-}
-
-function getNewsListKeyboard(news: any[]) {
-  const keyboard = news.map((item, index) => [
-    { text: `${index + 1}. ${item.title.substring(0, 30)}...`, callback_data: `view_news_${item.id}` },
-  ])
-
-  keyboard.push([{ text: "🔙 Главное меню", callback_data: "main_menu" }])
-
-  return { inline_keyboard: keyboard }
-}
-
-function getNewsActionKeyboard(newsId: number) {
-  return {
-    inline_keyboard: [
-      [
-        { text: "✏️ Редактировать", callback_data: `edit_news_${newsId}` },
-        { text: "🗑️ Удалить", callback_data: `delete_news_${newsId}` },
-      ],
-      [
-        { text: "🔙 К списку", callback_data: "list_news" },
-        { text: "🏠 Главное меню", callback_data: "main_menu" },
-      ],
-    ],
-  }
-}
-
-function getEditMenuKeyboard(newsId: number) {
-  return {
-    inline_keyboard: [
-      [
-        { text: "📝 Заголовок", callback_data: `edit_title_${newsId}` },
-        { text: "📄 Описание", callback_data: `edit_description_${newsId}` },
-      ],
-      [
-        { text: "👤 Автор", callback_data: `edit_author_${newsId}` },
-        { text: "🖼️ Изображение", callback_data: `edit_image_${newsId}` },
-      ],
-      [
-        { text: "🔙 К новости", callback_data: `view_news_${newsId}` },
-        { text: "🏠 Главное меню", callback_data: "main_menu" },
-      ],
-    ],
-  }
-}
-
-function getConfirmDeleteKeyboard(newsId: number) {
-  return {
-    inline_keyboard: [
-      [
-        { text: "✅ Да, удалить", callback_data: `confirm_delete_${newsId}` },
-        { text: "❌ Отмена", callback_data: `view_news_${newsId}` },
-      ],
-    ],
+    console.error("Error getting file URL:", error)
+    return null
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const update: TelegramUpdate = await request.json()
+    const body: TelegramUpdate = await request.json()
 
-    // Обработка текстовых сообщений
-    if (update.message) {
-      const { message } = update
-      const userId = message.from.id
-      const chatId = message.chat.id
-      const text = message.text || ""
+    // Обработка callback queries (кнопки)
+    if (body.callback_query) {
+      const callbackQuery = body.callback_query
+      const chatId = callbackQuery.message?.chat.id
+      const userId = callbackQuery.from.id
+      const data = callbackQuery.data
 
-      // Проверка авторизации
-      if (!AUTHORIZED_USERS.includes(userId.toString())) {
-        await sendMessage(chatId, "❌ У вас нет доступа к этому боту.")
+      if (!chatId || !AUTHORIZED_USERS.includes(userId.toString())) {
         return NextResponse.json({ ok: true })
       }
 
-      // Команда отмены
-      if (text === "/cancel") {
+      const userState = userStates.get(userId)
+
+      if (data === "confirm_publish" && userState) {
+        try {
+          const author = `${callbackQuery.from.first_name}${callbackQuery.from.username ? ` (@${callbackQuery.from.username})` : ""}`
+
+          await NewsDatabase.addNews(userState.data.title!, userState.data.description!, author, userState.data.image)
+
+          userStates.delete(userId)
+
+          await sendTelegramMessage(chatId, "🎉 Новость успешно опубликована!")
+        } catch (error) {
+          console.error("Error publishing news:", error)
+          await sendTelegramMessage(chatId, `❌ Ошибка при публикации новости: ${error}`)
+        }
+      } else if (data === "cancel_publish") {
         userStates.delete(userId)
-        await sendMessage(chatId, "❌ Операция отменена.", getMainMenuKeyboard())
+        await sendTelegramMessage(chatId, "❌ Публикация новости отменена.")
+      }
+
+      return NextResponse.json({ ok: true })
+    }
+
+    const message = body.message
+    if (!message) {
+      return NextResponse.json({ ok: true })
+    }
+
+    const userId = message.from.id.toString()
+    const chatId = message.chat.id
+    const userName = message.from.first_name || "Пользователь"
+
+    // Проверка авторизации
+    if (!AUTHORIZED_USERS.includes(userId)) {
+      await sendTelegramMessage(chatId, `❌ У вас нет прав для использования этого бота.`)
+      return NextResponse.json({ ok: true })
+    }
+
+    // Обработка фотографий
+    if (message.photo && message.photo.length > 0) {
+      const userState = userStates.get(message.from.id)
+
+      if (userState && userState.step === "image") {
+        // Берем изображение наибольшего размера
+        const photo = message.photo[message.photo.length - 1]
+        const imageUrl = await getFileUrl(photo.file_id)
+
+        if (imageUrl) {
+          userState.data.image = imageUrl
+          await sendTelegramMessage(chatId, "✅ Изображение сохранено.")
+        } else {
+          await sendTelegramMessage(chatId, "❌ Ошибка при сохранении изображения. Продолжаем без изображения.")
+        }
+
+        userState.step = "confirm"
+
+        const preview = `📋 <b>Предварительный просмотр новости:</b>
+
+<b>Заголовок:</b> ${userState.data.title}
+
+<b>Описание:</b> ${userState.data.description}
+
+<b>Изображение:</b> ${userState.data.image ? "Да" : "Нет"}
+
+<b>Автор:</b> ${message.from.first_name}${message.from.username ? ` (@${message.from.username})` : ""}
+
+Подтвердите публикацию новости:`
+
+        await sendTelegramMessage(chatId, preview, {
+          inline_keyboard: [
+            [
+              { text: "✅ Опубликовать", callback_data: "confirm_publish" },
+              { text: "❌ Отменить", callback_data: "cancel_publish" },
+            ],
+          ],
+        })
+
         return NextResponse.json({ ok: true })
       }
 
-      // Команда старт
-      if (text === "/start") {
-        userStates.delete(userId)
-        await sendMessage(
+      const caption = message.caption || ""
+
+      if (!caption.includes("|")) {
+        await sendTelegramMessage(
           chatId,
-          `👋 Добро пожаловать в панель управления новостями УК "ДЕЛЬТА"!\n\nВыберите действие:`,
-          getMainMenuKeyboard(),
+          "❌ <b>Неверный формат</b>\n\nДля новости с фото используйте:\n<b>Заголовок | Описание</b>\n\nПример:\n<b>Важная новость | Подробное описание</b>",
         )
         return NextResponse.json({ ok: true })
       }
 
-      // Обработка состояний создания/редактирования
-      const userState = userStates.get(userId)
-      if (userState) {
-        await handleUserState(userId, chatId, text, userState)
+      const parts = caption.split("|")
+      const title = parts[0].trim()
+      const description = parts.slice(1).join("|").trim()
+
+      if (!title || !description) {
+        await sendTelegramMessage(chatId, "❌ <b>Пустые поля</b>\n\nЗаголовок и описание не могут быть пустыми")
         return NextResponse.json({ ok: true })
       }
 
-      // Если нет активного состояния, показываем главное меню
-      await sendMessage(chatId, "Выберите действие:", getMainMenuKeyboard())
+      // Получаем самое большое фото
+      const largestPhoto = message.photo.reduce((prev, current) =>
+        prev.width * prev.height > current.width * current.height ? prev : current,
+      )
+
+      const imageUrl = await getFileUrl(largestPhoto.file_id)
+
+      await sendTelegramMessage(chatId, "⏳ <b>Добавляю новость с фото...</b>")
+
+      try {
+        const newNews = await NewsDatabase.addNews(title, description, userName, imageUrl || undefined)
+
+        const successMessage = `✅ <b>Новость с фото успешно добавлена!</b>
+
+📰 <b>Заголовок:</b> ${title}
+📝 <b>Описание:</b> ${description.length > 100 ? description.substring(0, 100) + "..." : description}
+👤 <b>Автор:</b> ${userName}
+📸 <b>Фото:</b> Прикреплено
+⏰ <b>Время:</b> ${new Date().toLocaleString("ru-RU")}
+
+🌐 <b>Просмотреть:</b> <a href="${process.env.NEXT_PUBLIC_BASE_URL}/news">Страница новостей</a>`
+
+        await sendTelegramMessage(chatId, successMessage)
+      } catch (error) {
+        await sendTelegramMessage(chatId, `❌ <b>Ошибка публикации</b>\n\n${String(error)}`)
+      }
+
+      return NextResponse.json({ ok: true })
     }
 
-    // Обработка callback запросов
-    if (update.callback_query) {
-      const { callback_query } = update
-      const userId = callback_query.from.id
-      const chatId = callback_query.message.chat.id
-      const messageId = callback_query.message.message_id
-      const data = callback_query.data
+    const text = message.text?.trim()
+    if (!text) {
+      return NextResponse.json({ ok: true })
+    }
 
-      // Проверка авторизации
-      if (!AUTHORIZED_USERS.includes(userId.toString())) {
-        await answerCallbackQuery(callback_query.id, "❌ У вас нет доступа")
+    // Обработка состояний создания новости
+    const userState = userStates.get(message.from.id)
+    if (userState) {
+      switch (userState.step) {
+        case "title":
+          if (!text.trim()) {
+            await sendTelegramMessage(chatId, "❌ Заголовок не может быть пустым. Попробуйте еще раз:")
+            return NextResponse.json({ ok: true })
+          }
+
+          userState.data.title = text.trim()
+          userState.step = "description"
+
+          await sendTelegramMessage(
+            chatId,
+            `✅ Заголовок сохранен: "${text.trim()}"
+
+📝 <b>Создание новости - Шаг 2/4</b>
+
+Введите <b>описание</b> новости:
+
+<i>Пример: "С 1 января вводятся новые правила парковки. Подробности в объявлении на доске."</i>`,
+          )
+          return NextResponse.json({ ok: true })
+
+        case "description":
+          if (!text.trim()) {
+            await sendTelegramMessage(chatId, "❌ Описание не может быть пустым. Попробуйте еще раз:")
+            return NextResponse.json({ ok: true })
+          }
+
+          userState.data.description = text.trim()
+          userState.step = "image"
+
+          await sendTelegramMessage(
+            chatId,
+            `✅ Описание сохранено.
+
+📷 <b>Создание новости - Шаг 3/4</b>
+
+Отправьте <b>изображение</b> для новости или напишите "пропустить":
+
+<i>Изображение поможет сделать новость более привлекательной.</i>`,
+          )
+          return NextResponse.json({ ok: true })
+
+        case "image":
+          if (text.toLowerCase() === "пропустить") {
+            await sendTelegramMessage(chatId, "✅ Изображение пропущено.")
+          } else {
+            await sendTelegramMessage(
+              chatId,
+              "❌ Отправьте изображение или напишите 'пропустить' для продолжения без изображения.",
+            )
+            return NextResponse.json({ ok: true })
+          }
+
+          userState.step = "confirm"
+
+          const preview = `📋 <b>Предварительный просмотр новости:</b>
+
+<b>Заголовок:</b> ${userState.data.title}
+
+<b>Описание:</b> ${userState.data.description}
+
+<b>Изображение:</b> ${userState.data.image ? "Да" : "Нет"}
+
+<b>Автор:</b> ${message.from.first_name}${message.from.username ? ` (@${message.from.username})` : ""}
+
+Подтвердите публикацию новости:`
+
+          await sendTelegramMessage(chatId, preview, {
+            inline_keyboard: [
+              [
+                { text: "✅ Опубликовать", callback_data: "confirm_publish" },
+                { text: "❌ Отменить", callback_data: "cancel_publish" },
+              ],
+            ],
+          })
+          return NextResponse.json({ ok: true })
+      }
+    }
+
+    // Команда /start
+    if (text === "/start") {
+      const welcomeMessage = `🏢 <b>Бот управляющей компании</b>
+
+Добро пожаловать, ${userName}!
+
+📰 <b>Управление новостями:</b>
+• /news - Создать новость (пошагово)
+• /list - Список всех новостей
+• /edit - Редактировать новость
+• /delete - Удалить новость
+• /status - Проверить статус системы
+• /test - Тестовая новость
+
+📝 <b>Форматы команд:</b>
+<code>/news</code> - запустить мастер создания новости
+<code>/edit ID | Новый заголовок | Новое описание</code>
+<code>/delete ID</code>
+
+📸 <b>Новость с фото:</b>
+Отправьте фото с подписью в формате:
+<b>Заголовок | Описание</b>
+
+💡 <b>Пример:</b>
+<code>/news</code> - затем следуйте инструкциям`
+
+      await sendTelegramMessage(chatId, welcomeMessage)
+      return NextResponse.json({ ok: true })
+    }
+
+    // Команда /news - запуск мастера создания новости
+    if (text === "/news") {
+      userStates.set(message.from.id, {
+        step: "title",
+        data: {},
+      })
+      await sendTelegramMessage(
+        chatId,
+        `📝 <b>Создание новости - Шаг 1/4</b>
+
+Введите <b>заголовок</b> новости:
+
+<i>Пример: "Новые правила парковки во дворе"</i>`,
+      )
+      return NextResponse.json({ ok: true })
+    }
+
+    // Команда /list - показать список новостей
+    if (text === "/list") {
+      try {
+        const newsList = await NewsDatabase.getNewsListForTelegram()
+
+        if (newsList.length === 0) {
+          await sendTelegramMessage(
+            chatId,
+            "📰 <b>Список новостей пуст</b>\n\nИспользуйте /news для добавления новости",
+          )
+        } else {
+          const listMessage = `📰 <b>Список новостей (${newsList.length}):</b>
+
+${newsList.join("\n")}
+
+💡 <b>Для редактирования:</b>
+<code>/edit ID | Новый заголовок | Новое описание</code>
+
+🗑 <b>Для удаления:</b>
+<code>/delete ID</code>`
+
+          await sendTelegramMessage(chatId, listMessage)
+        }
+      } catch (error) {
+        await sendTelegramMessage(chatId, `❌ <b>Ошибка получения списка</b>\n\n${String(error)}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    // Команда /edit - редактировать новость
+    if (text.startsWith("/edit ")) {
+      const editContent = text.substring(6).trim()
+
+      if (!editContent) {
+        await sendTelegramMessage(
+          chatId,
+          "❌ <b>Пустая команда редактирования</b>\n\nИспользуйте формат:\n<code>/edit ID | Новый заголовок | Новое описание</code>\n\nДля получения списка ID используйте /list",
+        )
         return NextResponse.json({ ok: true })
       }
 
-      await handleCallbackQuery(userId, chatId, messageId, data, callback_query.id)
+      const parts = editContent.split("|")
+      if (parts.length < 3) {
+        await sendTelegramMessage(
+          chatId,
+          "❌ <b>Неверный формат</b>\n\nИспользуйте:\n<code>/edit ID | Новый заголовок | Новое описание</code>\n\nПример:\n<code>/edit news_123 | Обновленный заголовок | Обновленное описание</code>",
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      const newsId = parts[0].trim()
+      const newTitle = parts[1].trim()
+      const newDescription = parts.slice(2).join("|").trim()
+
+      if (!newsId || !newTitle || !newDescription) {
+        await sendTelegramMessage(chatId, "❌ <b>Пустые поля</b>\n\nID, заголовок и описание не могут быть пустыми")
+        return NextResponse.json({ ok: true })
+      }
+
+      await sendTelegramMessage(chatId, "⏳ <b>Обновляю новость...</b>")
+
+      try {
+        const updatedNews = await NewsDatabase.updateNews(newsId, newTitle, newDescription, userName)
+
+        const successMessage = `✅ <b>Новость успешно обновлена!</b>
+
+📰 <b>Новый заголовок:</b> ${newTitle}
+📝 <b>Новое описание:</b> ${newDescription.length > 100 ? newDescription.substring(0, 100) + "..." : newDescription}
+👤 <b>Автор:</b> ${userName}
+⏰ <b>Время обновления:</b> ${new Date().toLocaleString("ru-RU")}
+
+🌐 <b>Просмотреть:</b> <a href="${process.env.NEXT_PUBLIC_BASE_URL}/news">Страница новостей</a>`
+
+        await sendTelegramMessage(chatId, successMessage)
+      } catch (error) {
+        await sendTelegramMessage(
+          chatId,
+          `❌ <b>Ошибка обновления</b>\n\n${String(error)}\n\nИспользуйте /list для получения актуального списка новостей`,
+        )
+      }
+
+      return NextResponse.json({ ok: true })
     }
 
+    // Команда /delete - удалить новость
+    if (text.startsWith("/delete ")) {
+      const newsId = text.substring(8).trim()
+
+      if (!newsId) {
+        await sendTelegramMessage(
+          chatId,
+          "❌ <b>Не указан ID новости</b>\n\nИспользуйте формат:\n<code>/delete ID</code>\n\nДля получения списка ID используйте /list",
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      await sendTelegramMessage(chatId, "⏳ <b>Удаляю новость...</b>")
+
+      try {
+        const deletedNews = await NewsDatabase.deleteNews(newsId)
+
+        const successMessage = `✅ <b>Новость успешно удалена!</b>
+
+📰 <b>Заголовок:</b> ${deletedNews.title}
+⏰ <b>Время удаления:</b> ${new Date().toLocaleString("ru-RU")}
+
+🌐 <b>Просмотреть:</b> <a href="${process.env.NEXT_PUBLIC_BASE_URL}/news">Страница новостей</a>`
+
+        await sendTelegramMessage(chatId, successMessage)
+      } catch (error) {
+        await sendTelegramMessage(
+          chatId,
+          `❌ <b>Ошибка удаления</b>\n\n${String(error)}\n\nИспользуйте /list для получения актуального списка новостей`,
+        )
+      }
+
+      return NextResponse.json({ ok: true })
+    }
+
+    // Команда /test - добавляет тестовую новость
+    if (text === "/test") {
+      const testTitle = `Тестовая новость ${new Date().toLocaleTimeString("ru-RU")}`
+      const testDescription = `Это тестовая новость, добавленная ${new Date().toLocaleString("ru-RU")} пользователем ${userName}`
+
+      try {
+        const newNews = await NewsDatabase.addNews(testTitle, testDescription, userName)
+
+        const successMessage = `✅ <b>Тестовая новость добавлена!</b>
+
+📰 <b>Заголовок:</b> ${testTitle}
+📝 <b>Описание:</b> ${testDescription}
+👤 <b>Автор:</b> ${userName}
+⏰ <b>Время:</b> ${new Date().toLocaleString("ru-RU")}
+
+🌐 <b>Просмотреть:</b> <a href="${process.env.NEXT_PUBLIC_BASE_URL}/news">Страница новостей</a>`
+
+        await sendTelegramMessage(chatId, successMessage)
+      } catch (error) {
+        await sendTelegramMessage(chatId, `❌ Ошибка добавления тестовой новости: ${String(error)}`)
+      }
+
+      return NextResponse.json({ ok: true })
+    }
+
+    // Команда /status
+    if (text === "/status") {
+      try {
+        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://ykdelta.vercel.app"
+        const newsCount = await NewsDatabase.getNewsCount()
+        const userNewsCount = newsCount > 0 ? newsCount - 1 : 0 // Исключаем welcome сообщение
+        const dbConnected = await NewsDatabase.testConnection()
+
+        const statusMessage = `📊 <b>Статус системы</b>
+
+🌐 <b>Сайт:</b> ${baseUrl}
+🗄️ <b>База данных Supabase:</b> ${dbConnected ? "✅ Подключена" : "❌ Ошибка подключения"}
+📰 <b>Система новостей:</b> ${newsCount > 0 ? "✅ Работает" : "❌ Пусто"}
+📝 <b>Всего новостей:</b> ${newsCount}
+📄 <b>Пользовательских новостей:</b> ${userNewsCount}
+⏰ <b>Время проверки:</b> ${new Date().toLocaleString("ru-RU")}
+
+🔗 <b>Ссылки:</b>
+• <a href="${baseUrl}/news">Страница новостей</a>
+
+💡 <b>Команды управления:</b>
+• /list - Список новостей
+• /test - Добавить тестовую новость
+• /news - Создать новость (мастер)
+• /edit ID | Заголовок | Описание - Редактировать
+• /delete ID - Удалить новость
+• 📸 Отправить фото с подписью - Новость с фото`
+
+        await sendTelegramMessage(chatId, statusMessage)
+      } catch (error) {
+        console.error("Status check error:", error)
+        await sendTelegramMessage(chatId, `❌ <b>Ошибка проверки статуса</b>\n\n${String(error)}`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    // Неизвестная команда
+    await sendTelegramMessage(
+      chatId,
+      `❓ <b>Неизвестная команда</b>\n\nКоманда "${text}" не распознана.\n\nИспользуйте /start для просмотра доступных команд.`,
+    )
     return NextResponse.json({ ok: true })
   } catch (error) {
-    console.error("Error processing webhook:", error)
+    console.error("Webhook error:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
-async function handleUserState(userId: number, chatId: number, text: string, userState: any) {
-  const { action, step, data } = userState
+export async function GET() {
+  try {
+    const webhookUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo`
+    const response = await fetch(webhookUrl)
+    const data = await response.json()
 
-  if (action === "creating") {
-    switch (step) {
-      case "title":
-        data.title = text
-        userState.step = "description"
-        await sendMessage(chatId, "📄 Введите описание новости:")
-        break
+    const newsCount = await NewsDatabase.getNewsCount()
+    const dbConnected = await NewsDatabase.testConnection()
 
-      case "description":
-        data.description = text
-        userState.step = "author"
-        await sendMessage(chatId, "👤 Введите имя автора:")
-        break
-
-      case "author":
-        data.author = text
-        userState.step = "image"
-        await sendMessage(chatId, '🖼️ Введите URL изображения (или отправьте "нет" чтобы пропустить):')
-        break
-
-      case "image":
-        if (text.toLowerCase() !== "нет") {
-          data.image = text
-        }
-        userState.step = "confirm"
-
-        const confirmText = `
-📰 <b>Подтверждение создания новости</b>
-
-<b>Заголовок:</b> ${data.title}
-<b>Описание:</b> ${data.description}
-<b>Автор:</b> ${data.author}
-<b>Изображение:</b> ${data.image || "Не указано"}
-
-Создать новость?`
-
-        await sendMessage(chatId, confirmText, {
-          inline_keyboard: [
-            [
-              { text: "✅ Создать", callback_data: "confirm_create" },
-              { text: "❌ Отмена", callback_data: "cancel_create" },
-            ],
-          ],
-        })
-        break
-    }
-  } else if (action === "editing") {
-    const newsId = data.id!
-
-    try {
-      const updateData: any = {}
-
-      switch (step) {
-        case "title":
-          updateData.title = text
-          break
-        case "description":
-          updateData.description = text
-          break
-        case "author":
-          updateData.author = text
-          break
-        case "image":
-          if (text.toLowerCase() !== "нет") {
-            updateData.image = text
-          } else {
-            updateData.image = null
-          }
-          break
-      }
-
-      await updateNews(newsId, updateData)
-      userStates.delete(userId)
-
-      await sendMessage(chatId, "✅ Новость успешно обновлена!", getNewsActionKeyboard(newsId))
-    } catch (error) {
-      await sendMessage(chatId, "❌ Ошибка при обновлении новости.", getMainMenuKeyboard())
-      userStates.delete(userId)
-    }
-  }
-}
-
-async function handleCallbackQuery(
-  userId: number,
-  chatId: number,
-  messageId: number,
-  data: string,
-  callbackQueryId: string,
-) {
-  await answerCallbackQuery(callbackQueryId)
-
-  if (data === "main_menu") {
-    userStates.delete(userId)
-    await editMessage(chatId, messageId, "Выберите действие:", getMainMenuKeyboard())
-  } else if (data === "list_news") {
-    try {
-      const news = await getAllNews()
-      if (news.length === 0) {
-        await editMessage(chatId, messageId, "📰 Новостей пока нет.", getMainMenuKeyboard())
-      } else {
-        await editMessage(chatId, messageId, "📰 Список новостей:", getNewsListKeyboard(news))
-      }
-    } catch (error) {
-      await editMessage(chatId, messageId, "❌ Ошибка при загрузке новостей.", getMainMenuKeyboard())
-    }
-  } else if (data === "create_news") {
-    userStates.set(userId, {
-      action: "creating",
-      step: "title",
-      data: {},
+    return NextResponse.json({
+      status: "Telegram webhook handler",
+      webhook_info: data,
+      authorized_users: AUTHORIZED_USERS,
+      bot_token_configured: !!TELEGRAM_BOT_TOKEN,
+      base_url: process.env.NEXT_PUBLIC_BASE_URL,
+      supabase_news_count: newsCount,
+      supabase_connected: dbConnected,
     })
-    await editMessage(chatId, messageId, "📝 Введите заголовок новости:")
-  } else if (data === "stats") {
-    try {
-      const news = await getAllNews()
-      const statsText = `
-📊 <b>Статистика системы</b>
-
-📰 Всего новостей: ${news.length}
-📅 Последняя новость: ${news.length > 0 ? new Date(news[0].date).toLocaleDateString("ru-RU") : "Нет"}
-👤 Активных пользователей: ${AUTHORIZED_USERS.length}`
-
-      await editMessage(chatId, messageId, statsText, getMainMenuKeyboard())
-    } catch (error) {
-      await editMessage(chatId, messageId, "❌ Ошибка при загрузке статистики.", getMainMenuKeyboard())
-    }
-  } else if (data.startsWith("view_news_")) {
-    const newsId = Number.parseInt(data.replace("view_news_", ""))
-    try {
-      const news = await getNewsById(newsId)
-      if (news) {
-        const newsText = `
-📰 <b>${news.title}</b>
-
-📄 <b>Описание:</b>
-${news.description}
-
-👤 <b>Автор:</b> ${news.author}
-📅 <b>Дата:</b> ${new Date(news.date).toLocaleDateString("ru-RU")}
-${news.image ? `🖼️ <b>Изображение:</b> ${news.image}` : ""}`
-
-        await editMessage(chatId, messageId, newsText, getNewsActionKeyboard(newsId))
-      } else {
-        await editMessage(chatId, messageId, "❌ Новость не найдена.", getMainMenuKeyboard())
-      }
-    } catch (error) {
-      await editMessage(chatId, messageId, "❌ Ошибка при загрузке новости.", getMainMenuKeyboard())
-    }
-  } else if (data.startsWith("edit_news_")) {
-    const newsId = Number.parseInt(data.replace("edit_news_", ""))
-    await editMessage(chatId, messageId, "✏️ Что хотите изменить?", getEditMenuKeyboard(newsId))
-  } else if (data.startsWith("edit_title_")) {
-    const newsId = Number.parseInt(data.replace("edit_title_", ""))
-    userStates.set(userId, {
-      action: "editing",
-      step: "title",
-      data: { id: newsId },
-    })
-    await editMessage(chatId, messageId, "📝 Введите новый заголовок:")
-  } else if (data.startsWith("edit_description_")) {
-    const newsId = Number.parseInt(data.replace("edit_description_", ""))
-    userStates.set(userId, {
-      action: "editing",
-      step: "description",
-      data: { id: newsId },
-    })
-    await editMessage(chatId, messageId, "📄 Введите новое описание:")
-  } else if (data.startsWith("edit_author_")) {
-    const newsId = Number.parseInt(data.replace("edit_author_", ""))
-    userStates.set(userId, {
-      action: "editing",
-      step: "author",
-      data: { id: newsId },
-    })
-    await editMessage(chatId, messageId, "👤 Введите нового автора:")
-  } else if (data.startsWith("edit_image_")) {
-    const newsId = Number.parseInt(data.replace("edit_image_", ""))
-    userStates.set(userId, {
-      action: "editing",
-      step: "image",
-      data: { id: newsId },
-    })
-    await editMessage(chatId, messageId, '🖼️ Введите новый URL изображения (или "нет" для удаления):')
-  } else if (data.startsWith("delete_news_")) {
-    const newsId = Number.parseInt(data.replace("delete_news_", ""))
-    await editMessage(
-      chatId,
-      messageId,
-      "🗑️ Вы уверены, что хотите удалить эту новость?",
-      getConfirmDeleteKeyboard(newsId),
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: "Failed to get webhook info",
+        supabase_connected: false,
+        details: String(error),
+      },
+      { status: 500 },
     )
-  } else if (data.startsWith("confirm_delete_")) {
-    const newsId = Number.parseInt(data.replace("confirm_delete_", ""))
-    try {
-      await deleteNews(newsId)
-      await editMessage(chatId, messageId, "✅ Новость успешно удалена!", getMainMenuKeyboard())
-    } catch (error) {
-      await editMessage(chatId, messageId, "❌ Ошибка при удалении новости.", getMainMenuKeyboard())
-    }
-  } else if (data === "confirm_create") {
-    const userState = userStates.get(userId)
-    if (userState && userState.action === "creating") {
-      try {
-        const newsData = {
-          title: userState.data.title!,
-          description: userState.data.description!,
-          author: userState.data.author!,
-          date: new Date().toISOString(),
-          image: userState.data.image || null,
-        }
-
-        await createNews(newsData)
-        userStates.delete(userId)
-
-        await editMessage(chatId, messageId, "✅ Новость успешно создана!", getMainMenuKeyboard())
-      } catch (error) {
-        await editMessage(chatId, messageId, "❌ Ошибка при создании новости.", getMainMenuKeyboard())
-        userStates.delete(userId)
-      }
-    }
-  } else if (data === "cancel_create") {
-    userStates.delete(userId)
-    await editMessage(chatId, messageId, "❌ Создание новости отменено.", getMainMenuKeyboard())
   }
 }
