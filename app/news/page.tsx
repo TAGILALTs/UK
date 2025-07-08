@@ -2,75 +2,53 @@
 
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { RefreshCw, Calendar, User, ExternalLink, AlertCircle, CheckCircle, Activity } from "lucide-react"
-
-interface NewsItem {
-  id: string
-  title: string
-  description: string
-  image?: string
-  date: string
-  author: string
-}
+import { Input } from "@/components/ui/input"
+import { CalendarDays, User, Search, ArrowLeft, Newspaper } from "lucide-react"
+import Link from "next/link"
+import type { NewsItem } from "@/lib/database"
 
 export default function NewsPage() {
   const [news, setNews] = useState<NewsItem[]>([])
+  const [filteredNews, setFilteredNews] = useState<NewsItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [lastUpdate, setLastUpdate] = useState<string>("")
-
-  const fetchNews = async () => {
-    try {
-      setError(null)
-
-      const response = await fetch("/api/news", {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        cache: "no-store",
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-      }
-
-      const data = await response.json()
-
-      if (data.success && Array.isArray(data.news)) {
-        setNews(data.news)
-        setLastUpdate(new Date().toLocaleTimeString("ru-RU"))
-      } else {
-        setError(`Неверный формат ответа`)
-      }
-    } catch (error) {
-      console.error("Error fetching news:", error)
-      setError(`Ошибка загрузки: ${String(error)}`)
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
-    }
-  }
-
-  const handleRefresh = async () => {
-    setRefreshing(true)
-    await fetchNews()
-  }
+  const [searchTerm, setSearchTerm] = useState("")
 
   useEffect(() => {
-    fetchNews()
-
-    // Автообновление каждые 10 секунд
-    const interval = setInterval(() => {
-      fetchNews()
-    }, 10000)
-
-    return () => {
-      clearInterval(interval)
+    const fetchNews = async () => {
+      try {
+        const response = await fetch("/api/news")
+        if (response.ok) {
+          const result = await response.json()
+          if (result.success) {
+            setNews(result.data)
+            setFilteredNews(result.data)
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching news:", error)
+      } finally {
+        setLoading(false)
+      }
     }
+
+    fetchNews()
   }, [])
+
+  useEffect(() => {
+    if (searchTerm) {
+      const filtered = news.filter(
+        (item) =>
+          item.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          item.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          item.author.toLowerCase().includes(searchTerm.toLowerCase()),
+      )
+      setFilteredNews(filtered)
+    } else {
+      setFilteredNews(news)
+    }
+  }, [searchTerm, news])
 
   const formatDate = (dateString: string) => {
     try {
@@ -78,21 +56,21 @@ export default function NewsPage() {
         year: "numeric",
         month: "long",
         day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
       })
     } catch {
-      return dateString
+      return "Неизвестная дата"
     }
   }
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 pt-20">
-        <div className="container mx-auto px-4 py-8">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="mt-4 text-gray-600">Загрузка новостей...</p>
+      <div className="min-h-screen bg-gray-50 py-8">
+        <div className="container mx-auto px-4">
+          <div className="flex items-center justify-center h-64">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <p className="text-gray-600">Загрузка новостей...</p>
+            </div>
           </div>
         </div>
       </div>
@@ -100,122 +78,102 @@ export default function NewsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 pt-20">
-      <div className="container mx-auto px-4 py-8">
-        <div className="text-center mb-12">
-          <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-4">
-            Новости компании
-          </h1>
-          <p className="text-xl text-gray-600 max-w-2xl mx-auto mb-6">
-            Актуальная информация о деятельности управляющей компании
-          </p>
-
-          <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-4">
-            <Button
-              onClick={handleRefresh}
-              disabled={refreshing}
-              className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white"
-            >
-              <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? "animate-spin" : ""}`} />
-              {refreshing ? "Обновление..." : "Обновить"}
+    <div className="min-h-screen bg-gray-50 py-8">
+      <div className="container mx-auto px-4">
+        {/* Header */}
+        <div className="mb-8">
+          <div className="flex items-center gap-4 mb-6">
+            <Button asChild variant="outline" size="sm">
+              <Link href="/">
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                На главную
+              </Link>
             </Button>
-
-            {lastUpdate && (
-              <div className="flex items-center gap-2 text-sm text-gray-500">
-                <CheckCircle className="w-4 h-4 text-green-500" />
-                Последнее обновление: {lastUpdate}
-              </div>
-            )}
+            <Badge variant="secondary" className="text-sm">
+              <Newspaper className="h-4 w-4 mr-1" />
+              Всего новостей: {news.length}
+            </Badge>
           </div>
 
-          <div className="text-sm text-gray-500 mb-4">
-            <div className="flex items-center justify-center gap-2">
-              <Activity className="w-4 h-4 text-blue-500" />
-              Автообновление каждые 10 секунд • Всего новостей: {news.length}
-            </div>
+          <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">Новости компании</h1>
+          <p className="text-xl text-gray-600 mb-6">
+            Актуальная информация о деятельности управляющей компании ООО "ДЕЛЬТА"
+          </p>
+
+          {/* Search */}
+          <div className="relative max-w-md">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+            <Input
+              type="text"
+              placeholder="Поиск новостей..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10"
+            />
           </div>
         </div>
 
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" />
-            <div className="flex-1">
-              <h3 className="font-semibold text-red-800">Ошибка загрузки</h3>
-              <p className="text-red-700 text-sm mt-1">{error}</p>
-              <Button
-                onClick={handleRefresh}
-                variant="outline"
-                size="sm"
-                className="mt-2 border-red-300 text-red-700 hover:bg-red-50 bg-transparent"
-              >
-                Попробовать снова
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {news.length === 0 && !error ? (
-          <div className="text-center py-16">
-            <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md mx-auto">
-              <div className="w-16 h-16 bg-gradient-to-r from-blue-100 to-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <ExternalLink className="w-8 h-8 text-blue-600" />
-              </div>
-              <h3 className="text-xl font-semibold text-gray-800 mb-2">Новостей пока нет</h3>
-              <p className="text-gray-600 mb-4">Новости будут появляться здесь по мере их публикации.</p>
-              <div className="text-sm text-gray-500 bg-gray-50 rounded-lg p-3">
-                <p className="font-medium mb-1">Следите за обновлениями!</p>
-                <p>Страница автоматически обновляется каждые 10 секунд</p>
-              </div>
-            </div>
+        {/* News Grid */}
+        {filteredNews.length === 0 ? (
+          <div className="text-center py-12">
+            <Newspaper className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">
+              {searchTerm ? "Новости не найдены" : "Новостей пока нет"}
+            </h3>
+            <p className="text-gray-600">
+              {searchTerm
+                ? "Попробуйте изменить поисковый запрос"
+                : "Новости будут появляться здесь по мере их добавления"}
+            </p>
           </div>
         ) : (
-          <div className="grid gap-8 md:gap-12 max-w-4xl mx-auto">
-            {news.map((item) => (
-              <Card
-                key={item.id}
-                className="group bg-white/80 backdrop-blur-sm border-0 shadow-lg hover:shadow-2xl transition-all duration-500 transform hover:-translate-y-2 rounded-2xl overflow-hidden"
-              >
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {filteredNews.map((item) => (
+              <Card key={item.id} className="overflow-hidden hover:shadow-lg transition-shadow duration-300">
                 {item.image && (
-                  <div className="relative h-64 md:h-80 overflow-hidden">
+                  <div className="relative h-48">
                     <img
                       src={item.image || "/placeholder.svg"}
                       alt={item.title}
-                      className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                      className="w-full h-full object-cover"
                       onError={(e) => {
                         const target = e.target as HTMLImageElement
                         target.style.display = "none"
                       }}
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent"></div>
                   </div>
                 )}
-
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-2xl md:text-3xl font-bold text-gray-800 leading-tight group-hover:text-blue-600 transition-colors duration-300 break-words hyphens-auto">
-                    {item.title}
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg font-bold text-gray-900 leading-tight">
+                    <span className="line-clamp-2 break-words">{item.title}</span>
                   </CardTitle>
-
-                  <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500 mt-3">
-                    <div className="flex items-center gap-2">
-                      <Calendar className="w-4 h-4 flex-shrink-0" />
-                      <span className="break-words">{formatDate(item.date)}</span>
+                  <div className="flex items-center gap-4 text-sm text-gray-500">
+                    <div className="flex items-center gap-1">
+                      <CalendarDays className="h-4 w-4 flex-shrink-0" />
+                      <span className="truncate">{formatDate(item.date)}</span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <User className="w-4 h-4 flex-shrink-0" />
-                      <span className="break-words">{item.author}</span>
+                    <div className="flex items-center gap-1">
+                      <User className="h-4 w-4 flex-shrink-0" />
+                      <span className="truncate">{item.author}</span>
                     </div>
                   </div>
                 </CardHeader>
-
-                <CardContent>
-                  <div className="prose prose-lg max-w-none">
-                    <p className="text-gray-700 text-lg leading-relaxed whitespace-pre-wrap break-words hyphens-auto overflow-wrap-anywhere">
-                      {item.description}
-                    </p>
-                  </div>
+                <CardContent className="pt-0">
+                  <p className="text-gray-700 leading-relaxed break-words">
+                    <span className="line-clamp-4">{item.description}</span>
+                  </p>
                 </CardContent>
               </Card>
             ))}
+          </div>
+        )}
+
+        {/* Back to top */}
+        {filteredNews.length > 6 && (
+          <div className="text-center mt-12">
+            <Button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} variant="outline">
+              Наверх
+            </Button>
           </div>
         )}
       </div>
