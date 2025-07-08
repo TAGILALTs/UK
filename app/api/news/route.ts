@@ -1,60 +1,19 @@
 import { type NextRequest, NextResponse } from "next/server"
-
-interface NewsItem {
-  id: string
-  title: string
-  description: string
-  image?: string
-  date: string
-  author: string
-}
-
-// Инициализируем глобальное хранилище
-if (!global.newsStorage) {
-  global.newsStorage = [
-    {
-      id: "welcome",
-      title: "Добро пожаловать!",
-      description: "Система новостей готова к работе. Теперь вы можете публиковать новости через Telegram бота.",
-      date: new Date().toISOString(),
-      author: "Система",
-    },
-  ]
-}
+import { NewsDatabase } from "@/lib/database"
 
 export async function GET() {
   try {
     console.log("=== GET /api/news ===")
-    console.log("Global storage exists:", !!global.newsStorage)
-    console.log("News count:", global.newsStorage ? global.newsStorage.length : 0)
 
-    if (!global.newsStorage) {
-      global.newsStorage = [
-        {
-          id: "welcome",
-          title: "Добро пожаловать!",
-          description: "Система новостей готова к работе. Теперь вы можете публиковать новости через Telegram бота.",
-          date: new Date().toISOString(),
-          author: "Система",
-        },
-      ]
-    }
+    const news = await NewsDatabase.getAllNews()
+    const count = news.length
 
-    const news = global.newsStorage.map((item: NewsItem) => ({
-      id: item.id,
-      title: item.title,
-      description: item.description,
-      image: item.image,
-      date: item.date,
-      author: item.author,
-    }))
-
-    console.log("Returning news:", news.length, "items")
+    console.log("Returning news:", count, "items")
 
     return NextResponse.json({
       success: true,
       news: news,
-      count: news.length,
+      count: count,
       timestamp: new Date().toISOString(),
     })
   } catch (error) {
@@ -65,6 +24,7 @@ export async function GET() {
         error: "Failed to fetch news",
         news: [],
         count: 0,
+        details: String(error),
       },
       { status: 500 },
     )
@@ -90,22 +50,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!global.newsStorage) {
-      global.newsStorage = []
-    }
-
-    const newsId = `news_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-
-    const newNews: NewsItem = {
-      id: newsId,
-      title: title.trim(),
-      description: description.trim(),
-      image: image && typeof image === "string" ? image.trim() : undefined,
-      date: new Date().toISOString(),
-      author: author.trim(),
-    }
-
-    global.newsStorage.unshift(newNews)
+    const newNews = await NewsDatabase.addNews(
+      title.trim(),
+      description.trim(),
+      author.trim(),
+      image && typeof image === "string" ? image.trim() : undefined,
+    )
 
     console.log("News added successfully:", newNews)
 
@@ -120,6 +70,7 @@ export async function POST(request: NextRequest) {
       {
         success: false,
         error: "Failed to add news",
+        details: String(error),
       },
       { status: 500 },
     )
@@ -145,37 +96,13 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    if (!global.newsStorage) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "News storage not initialized",
-        },
-        { status: 404 },
-      )
-    }
-
-    const newsIndex = global.newsStorage.findIndex((news: NewsItem) => news.id === id)
-
-    if (newsIndex === -1) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "News not found",
-        },
-        { status: 404 },
-      )
-    }
-
-    const updatedNews: NewsItem = {
-      ...global.newsStorage[newsIndex],
-      title: title.trim(),
-      description: description.trim(),
-      image: image && typeof image === "string" ? image.trim() : undefined,
-      author: author.trim(),
-    }
-
-    global.newsStorage[newsIndex] = updatedNews
+    const updatedNews = await NewsDatabase.updateNews(
+      id,
+      title.trim(),
+      description.trim(),
+      author.trim(),
+      image && typeof image === "string" ? image.trim() : undefined,
+    )
 
     console.log("News updated successfully:", updatedNews)
 
@@ -186,12 +113,17 @@ export async function PUT(request: NextRequest) {
     })
   } catch (error) {
     console.error("Error in PUT /api/news:", error)
+
+    const errorMessage = String(error)
+    const statusCode = errorMessage.includes("not found") ? 404 : 500
+
     return NextResponse.json(
       {
         success: false,
         error: "Failed to update news",
+        details: errorMessage,
       },
-      { status: 500 },
+      { status: statusCode },
     )
   }
 }
@@ -213,40 +145,7 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    if (!global.newsStorage) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "News storage not initialized",
-        },
-        { status: 404 },
-      )
-    }
-
-    if (id === "welcome") {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Cannot delete welcome message",
-        },
-        { status: 403 },
-      )
-    }
-
-    const newsIndex = global.newsStorage.findIndex((news: NewsItem) => news.id === id)
-
-    if (newsIndex === -1) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "News not found",
-        },
-        { status: 404 },
-      )
-    }
-
-    const deletedNews = global.newsStorage[newsIndex]
-    global.newsStorage.splice(newsIndex, 1)
+    const deletedNews = await NewsDatabase.deleteNews(id)
 
     console.log("News deleted successfully:", deletedNews)
 
@@ -257,12 +156,23 @@ export async function DELETE(request: NextRequest) {
     })
   } catch (error) {
     console.error("Error in DELETE /api/news:", error)
+
+    const errorMessage = String(error)
+    let statusCode = 500
+
+    if (errorMessage.includes("not found")) {
+      statusCode = 404
+    } else if (errorMessage.includes("Cannot delete welcome")) {
+      statusCode = 403
+    }
+
     return NextResponse.json(
       {
         success: false,
         error: "Failed to delete news",
+        details: errorMessage,
       },
-      { status: 500 },
+      { status: statusCode },
     )
   }
 }
