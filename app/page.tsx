@@ -1,6 +1,8 @@
-import React, { useEffect, useState } from 'react';
+'use client';
 
+import React from 'react';
 
+const MaintenancePage = () => {
   return (
     <div style={{
       background: 'linear-gradient(135deg, #0c0c0c 0%, #1a1a1a 100%)',
@@ -102,7 +104,7 @@ import React, { useEffect, useState } from 'react';
           <p style={{ marginBottom: '10px', fontSize: '16px' }}>
             <i className="fas fa-phone"></i> Телефон:{' '}
             <a href="tel:+7 (3452) 51-77-07" style={{
-              color: '#9b59b6',
+              color: '##9b59b6',
               textDecoration: 'none',
               transition: 'color 0.3s'
             }}>
@@ -120,34 +122,33 @@ import React, { useEffect, useState } from 'react';
         </div>
       </div>
 
-      <style>
-        {`
-          @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-            100% { transform: scale(1); }
+      <style jsx>{`
+        @keyframes pulse {
+          0% { transform: scale(1); }
+          50% { transform: scale(1.05); }
+          100% { transform: scale(1); }
+        }
+        
+        @media (max-width: 768px) {
+          div > div {
+            padding: 30px 20px !important;
           }
           
-          @media (max-width: 768px) {
-            .container {
-              padding: 30px 20px;
-            }
-            
-            h1 {
-              font-size: 28px;
-            }
-            
-            p {
-              font-size: 16px;
-            }
-            
-            .icon {
-              font-size: 60px;
-            }
+          h1 {
+            font-size: 28px !important;
           }
-        `}
-      </style>
+          
+          p {
+            font-size: 16px !important;
+          }
+          
+          div > div > div:first-child {
+            font-size: 60px !important;
+          }
+        }
+      `}</style>
     </div>
   );
+};
 
 export default MaintenancePage;
