@@ -2,73 +2,75 @@
 
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { CalendarDays, User, Search, ArrowLeft, Newspaper } from "lucide-react"
+import Link from "next/link"
 import type { NewsItem } from "@/lib/database"
 
 export default function NewsPage() {
   const [news, setNews] = useState<NewsItem[]>([])
+  const [filteredNews, setFilteredNews] = useState<NewsItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [searchTerm, setSearchTerm] = useState("")
 
   useEffect(() => {
+    const fetchNews = async () => {
+      try {
+        const response = await fetch("/api/news")
+        if (response.ok) {
+          const result = await response.json()
+          if (result.success) {
+            setNews(result.data)
+            setFilteredNews(result.data)
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching news:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
     fetchNews()
   }, [])
 
-  const fetchNews = async () => {
-    try {
-      setLoading(true)
-      const response = await fetch("/api/news")
-      const data = await response.json()
-
-      if (data.success) {
-        setNews(data.news)
-      } else {
-        setError(data.error || "Ошибка при загрузке новостей")
-      }
-    } catch (err) {
-      console.error("Error fetching news:", err)
-      setError("Ошибка при загрузке новостей")
-    } finally {
-      setLoading(false)
+  useEffect(() => {
+    if (searchTerm) {
+      const filtered = news.filter(
+        (item) =>
+          item.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          item.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          item.author.toLowerCase().includes(searchTerm.toLowerCase()),
+      )
+      setFilteredNews(filtered)
+    } else {
+      setFilteredNews(news)
     }
-  }
+  }, [searchTerm, news])
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString)
-    return date.toLocaleDateString("ru-RU", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
+    try {
+      return new Date(dateString).toLocaleDateString("ru-RU", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })
+    } catch {
+      return "Неизвестная дата"
+    }
   }
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 py-8">
         <div className="container mx-auto px-4">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="mt-4 text-gray-600">Загрузка новостей...</p>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gray-50 py-8">
-        <div className="container mx-auto px-4">
-          <div className="text-center">
-            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded max-w-md mx-auto">
-              <p className="font-bold">Ошибка</p>
-              <p>{error}</p>
+          <div className="flex items-center justify-center h-64">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <p className="text-gray-600">Загрузка новостей...</p>
             </div>
-            <Button onClick={fetchNews} className="mt-4">
-              Попробовать снова
-            </Button>
           </div>
         </div>
       </div>
@@ -78,69 +80,102 @@ export default function NewsPage() {
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="container mx-auto px-4">
-        <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-8">
-            <h1 className="text-4xl font-bold text-gray-900 mb-4">Новости</h1>
-            <p className="text-xl text-gray-600">Актуальная информация от управляющей компании</p>
+        {/* Header */}
+        <div className="mb-8">
+          <div className="flex items-center gap-4 mb-6">
+            <Button asChild variant="outline" size="sm">
+              <Link href="/">
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                На главную
+              </Link>
+            </Button>
+            <Badge variant="secondary" className="text-sm">
+              <Newspaper className="h-4 w-4 mr-1" />
+              Всего новостей: {news.length}
+            </Badge>
           </div>
 
-          {news.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="text-gray-400 mb-4">
-                <svg className="mx-auto h-24 w-24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1}
-                    d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z"
-                  />
-                </svg>
-              </div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Новостей пока нет</h3>
-              <p className="text-gray-500">Новости будут появляться здесь по мере их публикации.</p>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {news.map((item) => (
-                <Card key={item.id} className="shadow-lg hover:shadow-xl transition-shadow duration-300">
-                  <CardHeader>
-                    <div className="flex justify-between items-start">
-                      <CardTitle className="text-2xl font-bold text-gray-900 mb-2">{item.title}</CardTitle>
-                      <div className="text-sm text-gray-500 ml-4 flex-shrink-0">{formatDate(item.date)}</div>
-                    </div>
-                    <div className="text-sm text-gray-600">
-                      <span className="font-medium">Автор:</span> {item.author}
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    {item.image && (
-                      <div className="mb-4">
-                        <img
-                          src={item.image || "/placeholder.svg"}
-                          alt={item.title}
-                          className="w-full h-64 object-cover rounded-lg shadow-md"
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement
-                            target.style.display = "none"
-                          }}
-                        />
-                      </div>
-                    )}
-                    <div className="prose prose-lg max-w-none">
-                      <p className="text-gray-700 leading-relaxed whitespace-pre-wrap">{item.description}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
+          <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">Новости компании</h1>
+          <p className="text-xl text-gray-600 mb-6">
+            Актуальная информация о деятельности управляющей компании ООО "ДЕЛЬТА"
+          </p>
 
-          <div className="text-center mt-8">
-            <Button onClick={fetchNews} variant="outline">
-              Обновить новости
-            </Button>
+          {/* Search */}
+          <div className="relative max-w-md">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+            <Input
+              type="text"
+              placeholder="Поиск новостей..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10"
+            />
           </div>
         </div>
+
+        {/* News Grid */}
+        {filteredNews.length === 0 ? (
+          <div className="text-center py-12">
+            <Newspaper className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">
+              {searchTerm ? "Новости не найдены" : "Новостей пока нет"}
+            </h3>
+            <p className="text-gray-600">
+              {searchTerm
+                ? "Попробуйте изменить поисковый запрос"
+                : "Новости будут появляться здесь по мере их добавления"}
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {filteredNews.map((item) => (
+              <Card key={item.id} className="overflow-hidden hover:shadow-lg transition-shadow duration-300">
+                {item.image && (
+                  <div className="relative h-48">
+                    <img
+                      src={item.image || "/placeholder.svg"}
+                      alt={item.title}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement
+                        target.style.display = "none"
+                      }}
+                    />
+                  </div>
+                )}
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg font-bold text-gray-900 leading-tight">
+                    <span className="line-clamp-2 break-words">{item.title}</span>
+                  </CardTitle>
+                  <div className="flex items-center gap-4 text-sm text-gray-500">
+                    <div className="flex items-center gap-1">
+                      <CalendarDays className="h-4 w-4 flex-shrink-0" />
+                      <span className="truncate">{formatDate(item.date)}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <User className="h-4 w-4 flex-shrink-0" />
+                      <span className="truncate">{item.author}</span>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <p className="text-gray-700 leading-relaxed break-words">
+                    <span className="line-clamp-4">{item.description}</span>
+                  </p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+
+        {/* Back to top */}
+        {filteredNews.length > 6 && (
+          <div className="text-center mt-12">
+            <Button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} variant="outline">
+              Наверх
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   )
